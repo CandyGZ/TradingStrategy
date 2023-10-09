@@ -2,7 +2,9 @@
 a very simple trading strategy incluiding graph and calc about % earning and actual balance
 
 This Python script implements a simple trading algorithm based on Moving Average Crossovers using historical cryptocurrency to USD exchange rate data. It provides a visualization of the strategy's performance and includes a basic backtest.
-https://github.com/CandyGZ/TradingStrategy/blob/main/chartBTC.png
+
+![TradingStrategy Chart](https://github.com/CandyGZ/TradingStrategy/raw/main/chartBTC.png)
+
 **Disclaimer**: This code is provided for educational purposes only and should not be considered as financial advice or a suggestion for investment. Trading cryptocurrencies and financial assets carries risk, and past performance does not guarantee future results. Please consult with a financial advisor before making any investment decisions.
 
 ## Usage
