@@ -19,7 +19,7 @@ class TradingEmulator:
 
     def __init__(self, symbol: str, initial_balance: float = 10000.0,
                  commission_rate: float = 0.001, risk_tolerance: float = 0.5,
-                 min_confidence: int = 60):
+                 min_confidence: int = 60, leverage: int = 1):
         """
         Inicializa el emulador.
 
@@ -29,10 +29,12 @@ class TradingEmulator:
             commission_rate: Tasa de comisión por operación
             risk_tolerance: Tolerancia al riesgo (0.0 a 1.0)
             min_confidence: Confianza mínima para ejecutar operaciones (0-100)
+            leverage: Apalancamiento (1-100x)
         """
         self.symbol = symbol
-        self.account = Account(initial_balance, commission_rate)
-        self.ai = TradingAI(symbol, risk_tolerance, min_confidence)
+        self.leverage = max(1, min(100, leverage))
+        self.account = Account(initial_balance, commission_rate, self.leverage)
+        self.ai = TradingAI(symbol, risk_tolerance, min_confidence, self.leverage)
         self.reporter = Reporter(self.account)
         self.data_provider = DataProvider(symbol)
         self.running = False
@@ -48,6 +50,8 @@ class TradingEmulator:
         print(f"Comisión: {commission_rate * 100:.2f}%")
         print(f"Tolerancia al Riesgo: {risk_tolerance * 100:.0f}%")
         print(f"Confianza Mínima: {min_confidence}%")
+        if self.leverage > 1:
+            print(f"⚡ Apalancamiento: {self.leverage}x (ALTO RIESGO)")
         print(f"{'='*70}\n")
 
     def run_single_iteration(self):
@@ -63,7 +67,22 @@ class TradingEmulator:
             print(f"\n{'='*70}")
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
             print(f"Precio Actual {self.symbol}: ${current_price:,.2f}")
-            print(f"Balance Disponible: ${self.account.balance:,.2f}")
+
+            # Mostrar información de balance y leverage
+            if self.leverage > 1:
+                available = self.account.get_available_balance()
+                margin_used = self.account.get_total_margin_used()
+                print(f"Balance Total: ${self.account.balance:,.2f}")
+                print(f"Margen Usado: ${margin_used:,.2f}")
+                print(f"Balance Disponible: ${available:,.2f}")
+            else:
+                print(f"Balance Disponible: ${self.account.balance:,.2f}")
+
+            # VERIFICAR LIQUIDACIONES primero
+            liquidated = self.account.check_liquidations({self.symbol: current_price})
+            if liquidated:
+                print(f"\n⚠️  Posiciones liquidadas: {', '.join(liquidated)}")
+                return
 
             # Verificar posición actual
             position = self.account.get_position(self.symbol)
@@ -74,8 +93,15 @@ class TradingEmulator:
                 pnl = position.get_profit_loss(current_price)
                 pnl_pct = position.get_profit_loss_percentage(current_price)
                 pnl_emoji = "💰" if pnl >= 0 else "📉"
-                print(f"{pnl_emoji} Posición Actual: {position_size:.6f} unidades @ ${current_position_price:.2f}")
+                leverage_str = f" [{position.leverage}x]" if position.leverage > 1 else ""
+                print(f"{pnl_emoji} Posición Actual{leverage_str}: {position_size:.6f} unidades @ ${current_position_price:.2f}")
                 print(f"   P&L: ${pnl:+,.2f} ({pnl_pct:+.2f}%)")
+
+                # Mostrar precio de liquidación si usa leverage
+                if position.leverage > 1:
+                    liq_price = position.get_liquidation_price()
+                    distance_to_liq = ((current_price - liq_price) / current_price) * 100
+                    print(f"   ⚠️  Precio Liquidación: ${liq_price:.2f} ({distance_to_liq:.1f}% de distancia)")
 
             # Tomar decisión de la IA
             print(f"\n🤖 Analizando mercado...")
@@ -95,8 +121,10 @@ class TradingEmulator:
             # Ejecutar decisión
             if decision['action'] == 'BUY' and decision['amount'] > 0:
                 investment_pct = decision.get('investment_percentage', 0)
-                print(f"\n💵 Ejecutando COMPRA ({investment_pct:.1f}% del balance)...")
-                self.account.buy(self.symbol, decision['amount'], current_price)
+                leverage_used = decision.get('leverage', self.leverage)
+                leverage_info = f" con {leverage_used}x leverage" if leverage_used > 1 else ""
+                print(f"\n💵 Ejecutando COMPRA{leverage_info} ({investment_pct:.1f}% del balance)...")
+                self.account.buy(self.symbol, decision['amount'], current_price, leverage_used)
 
             elif decision['action'] == 'SELL' and decision['amount'] > 0:
                 print(f"\n💰 Ejecutando VENTA...")
@@ -226,6 +254,13 @@ def main():
     )
 
     parser.add_argument(
+        '--leverage', '-lev',
+        type=int,
+        default=1,
+        help='Apalancamiento 3-100x (default: 1 = sin leverage). ⚠️ ALTO RIESGO'
+    )
+
+    parser.add_argument(
         '--interval', '-i',
         type=int,
         default=300,
@@ -256,7 +291,8 @@ def main():
         initial_balance=args.balance,
         commission_rate=args.commission,
         risk_tolerance=args.risk,
-        min_confidence=args.confidence
+        min_confidence=args.confidence,
+        leverage=args.leverage
     )
 
     # Ejecutar según modo

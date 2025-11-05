@@ -16,7 +16,8 @@ class TradingAI:
     Fibonacci y patrones históricos.
     """
 
-    def __init__(self, symbol: str, risk_tolerance: float = 0.5, min_confidence: int = 60):
+    def __init__(self, symbol: str, risk_tolerance: float = 0.5, min_confidence: int = 60,
+                 leverage: int = 1):
         """
         Inicializa la IA de trading.
 
@@ -24,13 +25,25 @@ class TradingAI:
             symbol: Símbolo del activo a tradear
             risk_tolerance: Tolerancia al riesgo (0.0 a 1.0)
             min_confidence: Confianza mínima para ejecutar operaciones (0-100)
+            leverage: Apalancamiento a usar (1-100x)
         """
         self.symbol = symbol
         self.risk_tolerance = risk_tolerance
         self.min_confidence = min_confidence
+        self.leverage = max(1, min(100, leverage))
         self.data_provider = DataProvider(symbol)
         self.last_decision_time = None
         self.decision_cooldown = 300  # 5 minutos entre decisiones
+
+        # Ajustar estrategia según leverage
+        if self.leverage > 1:
+            # Con leverage alto, ser más conservador
+            self.min_confidence = max(min_confidence, 60 + (self.leverage // 10))
+            # Reducir tolerancia al riesgo con leverage muy alto
+            if self.leverage >= 50:
+                self.risk_tolerance = min(self.risk_tolerance, 0.3)
+            elif self.leverage >= 20:
+                self.risk_tolerance = min(self.risk_tolerance, 0.5)
 
     def analyze_market(self) -> Dict[str, any]:
         """
@@ -146,6 +159,7 @@ class TradingAI:
                              analysis: Dict) -> Dict[str, any]:
         """
         Calcula la cantidad a comprar basada en el balance y confianza.
+        Con leverage, el cálculo considera el margen requerido.
 
         Args:
             balance: Balance disponible
@@ -154,11 +168,12 @@ class TradingAI:
             analysis: Análisis de mercado
 
         Returns:
-            Diccionario con amount y justificación adicional
+            Diccionario con amount, leverage y justificación adicional
         """
         if balance <= 0 or price <= 0:
             return {
                 'amount': 0,
+                'leverage': self.leverage,
                 'reasons': ['Balance o precio inválido']
             }
 
@@ -173,16 +188,28 @@ class TradingAI:
         elif volatility < 0.2:  # Baja volatilidad
             investment_percentage *= 1.2  # Aumentar exposición
 
+        # Con leverage alto, reducir porcentaje de inversión
+        if self.leverage >= 50:
+            investment_percentage *= 0.5  # Usar solo 50% con leverage muy alto
+        elif self.leverage >= 20:
+            investment_percentage *= 0.7  # Usar solo 70% con leverage alto
+
         # Limitar entre 5% y 30% del balance
         investment_percentage = max(0.05, min(0.30, investment_percentage))
 
-        # Calcular monto a invertir
-        investment_amount = balance * investment_percentage
-        units_to_buy = investment_amount / price
+        # Calcular monto a invertir (esto es el MARGEN con leverage)
+        margin_to_use = balance * investment_percentage
+
+        # Con leverage, podemos controlar más capital
+        position_value = margin_to_use * self.leverage
+        units_to_buy = position_value / price
 
         return {
             'amount': units_to_buy,
+            'leverage': self.leverage,
             'investment_percentage': investment_percentage * 100,
+            'margin_used': margin_to_use,
+            'position_value': position_value,
         }
 
     def _calculate_sell_amount(self, entry_price: float, position_size: float,
@@ -320,6 +347,18 @@ class TradingAI:
         Returns:
             Descripción en texto de la estrategia
         """
+        leverage_info = ""
+        if self.leverage > 1:
+            leverage_info = f"""
+5. Apalancamiento (Leverage):
+   - Leverage utilizado: {self.leverage}x
+   - Amplifica ganancias y pérdidas {self.leverage}x
+   - Margen requerido: 1/{self.leverage} del valor de posición
+   - Estrategia ajustada para mayor conservadurismo
+   - Confianza mínima aumentada con leverage alto
+   - ⚠️  RIESGO DE LIQUIDACIÓN si pérdidas > 90% del margen
+"""
+
         return f"""
 Estrategia de Trading AI para {self.symbol}:
 
@@ -347,4 +386,5 @@ Estrategia de Trading AI para {self.symbol}:
    - Identificación de niveles clave
    - Zonas de reversión potencial
    - Objetivos de precio dinámicos
+{leverage_info}
 """

@@ -170,6 +170,17 @@ class Reporter:
         report += f"Operaciones Totales:     {perf['trades']}\n"
         report += f"  • Compras:             {perf['buy_trades']}\n"
         report += f"  • Ventas:              {perf['sell_trades']}\n"
+
+        # Información de leverage si se usó
+        leverage_trades = [t for t in self.account.trade_history if t.leverage > 1]
+        if leverage_trades:
+            avg_leverage = sum(t.leverage for t in leverage_trades) / len(leverage_trades)
+            liquidations = sum(1 for t in self.account.trade_history if t.is_liquidation)
+            report += f"  ⚡ Con Leverage:        {len(leverage_trades)}\n"
+            report += f"  ⚡ Leverage Promedio:   {avg_leverage:.1f}x\n"
+            if liquidations > 0:
+                report += f"  ⚠️  Liquidaciones:       {liquidations}\n"
+
         report += f"\n"
         report += f"Volumen Operado:\n"
         report += f"  • Compras:             ${perf['buy_volume']:,.2f}\n"
